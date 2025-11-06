@@ -2,3 +2,5 @@
 | ----- | ----- | ----- |
 
 # Space Teams PRO ROS 2 Integration | Team Durbar
+
+The node durbar_controller_qualification is used for the qualification round.
