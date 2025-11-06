@@ -21,11 +21,16 @@ setup(
     maintainer_email='support@simdynamx.com',
     description='Python ROS2 package for SpaceTeams project with logger_info service. https://github.com/SimDynamX/SpaceTeamsROS',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    #tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'example_client = space_teams_python.example_client:main',
             'image_client = space_teams_python.image_client:main',
+	    'send_log_message = space_teams_python.send_log_message:main',
+	    'durbar_controller_qalification = space_teams_python.durbar_controller_qualification:main',
+	    'durbar_controller2 = space_teams_python.durbar_controller2:main',
+	    'video_recoder = space_teams_python.camera_view_save:main',
+	    'rock_detector = space_teams_python.rock_detector:main',
         ],
     },
 )

@@ -91,6 +91,8 @@ class ImageSubscriber(Node):
 
         # ---> Key change: use the Windows default-gateway IP
         windows_ip = self._get_windows_ip()
+        windows_ip = "10.51.135.186"
+
         if not windows_ip:
             self.get_logger().error("Failed to detect Windows host IP; pass-through disabled.")
             return
