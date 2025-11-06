@@ -5,4 +5,4 @@
 
 The node durbar_controller_qualification is used for the qualification round.
 
--> changed windows_ip in image_client and Localhost ip from ROS_Telemetry and Sim2_comm as we are using separate PC for simualarot and ROS.
+-> changed windows_ip in image_client and Localhost ip from ROS_Telemetry and Sim2_comm as we are using separate PC for simualator and ROS.
