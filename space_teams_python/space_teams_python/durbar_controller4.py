@@ -368,9 +368,9 @@ class RoverController(Node):
             speed_limit_kph = min(26,self.center_distance/2000 + 20)
         else: 
             if self.current_waypoint_idx in [7,11,12, 16, 18]:
-                speed_limit_kph = min(25,self.center_distance/1000 + 22)
+                speed_limit_kph = min(25,self.center_distance/1000 + 20)
             else:
-                speed_limit_kph = min(32,self.center_distance/1000 + 22)
+                speed_limit_kph = min(32,self.center_distance/1000 + 20)
         
         
         
