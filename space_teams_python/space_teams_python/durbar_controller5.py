@@ -14,6 +14,8 @@ from rclpy.qos import qos_profile_sensor_data
 
 import cv2
 import numpy as np
+from scipy.spatial.distance import cdist
+from scipy.interpolate import splprep, splev
 
 
 
@@ -28,6 +30,10 @@ class RoverController(Node):
         self.brake_client = self.create_client(Float, 'Brake')
         self.core_sampling_client = self.create_client(Float, 'CoreSample')
         self.change_exposure_client = self.create_client(Float, 'ChangeExposure')
+        self.change_rgb_freq_client = self.create_client(Float, 'ChangeRGBFreq')
+        self.change_depth_freq_client = self.create_client(Float, 'ChangeDepthFreq')
+
+
 
         # Topic subscriptions
         self.current_location_marsFrame = None
@@ -48,8 +54,13 @@ class RoverController(Node):
         self.create_subscription(Point, 'CoreSamplingComplete', self.core_sampling_complete_callback, 1)
         #image subcription
         self.create_subscription(Image, "/camera/image_raw", self.image_callback, qos_profile_sensor_data)
-        self.show_video = True
+        self.depth_subscription = self.create_subscription(Image,'/camera/depth/image_raw',self.depth_callback,qos_profile_sensor_data)
+        self.show_video = False
         self.rock = False
+        self.stuck = 0
+        self.night = False
+        self.center_distance = 99999.0
+        self.brightness = 100.0
         # Control state
         self.target_loc_localFrame = None
         self.tolerance = 5.0  # meters
@@ -65,13 +76,18 @@ class RoverController(Node):
 
         # Timer for control loop
         self.timer = self.create_timer(0.1, self.timer_callback)
-        self.get_logger().info('Rover controller is ready.')
+        self.get_logger().info('Rover controller is ready. Lets ride on Mars with Team Durbar.')
 
         #Image
         self.bridge = CvBridge()
         self.show_cam = True
+        self.cam_expose = 10.0
+        self.last_speed_diff_kph = 15
+
+        self.tm = time.time()
 
 
+    ## Image_processing  ###########################
     def image_callback(self, msg):
 
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
@@ -79,8 +95,8 @@ class RoverController(Node):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # ---- Night Detection Block ----
-        brightness = np.mean(gray)  # average brightness 0-255
-        if brightness < 5:         # threshold (you can tune 50-80 depending on environment)
+        self.brightness = np.mean(gray)  # average brightness 0-255
+        if self.brightness < 50 or self.brightness>180:         # threshold (you can tune 50-80 depending on environment)
             self.night = True
         else:
             self.night = False
@@ -102,13 +118,13 @@ class RoverController(Node):
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area > 700:
+            if area > 1000 and area <1500:
                 x, y, w, h = cv2.boundingRect(cnt)
                 rock_cx = x + w // 2
                 rock_cy = y + h // 2
                 self.rock = True
 
-                if rock_cy > 420:
+                if rock_cy > 420 & rock_cy < 200:
                     continue
 
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -116,16 +132,20 @@ class RoverController(Node):
                 cv2.putText(frame, "Rock", (x, y - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+                if area <1200:
+                    turn = 0.3
+                else:
+                    turn = 0.5
                 if abs(rock_cx - cx_frame) < center_dead_zone:
                     if rock_cx < cx_frame:
                         steer_command = "TURN RIGHT"
-                        self.send_steer_command(0.8)
-                        time.sleep(1)
+                        self.send_steer_command(turn)
+                        time.sleep(0.8)
 
                     else:
                         steer_command = "TURN LEFT"
-                        self.send_steer_command(-0.8)
-                        time.sleep(1)
+                        self.send_steer_command(-turn)
+                        time.sleep(0.8)
                 else:
                     steer_command = "FORWARD"
             else:
@@ -142,9 +162,29 @@ class RoverController(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 128, 255), 3)
 
             cv2.imshow("Mars Rock Detection", frame)
-            cv2.imshow("Edges", edges)
+            #cv2.imshow("Edges", edges)
             cv2.waitKey(1)
-
+    def depth_callback(self, msg):
+        try:
+            # Convert to numpy array (depth map)
+            depth_image = self.bridge.imgmsg_to_cv2(msg)
+            
+            # You can access distance values directly from the image
+            # For example, to get the distance at the center:
+            height, width = depth_image.shape
+            self.center_distance = depth_image[height//2, width//2]
+            self.get_logger().info(f'Center distance: {self.center_distance} meters')
+            
+            # Visualize the depth map
+            # Note: Need to normalize for visualization
+            # depth_colormap = cv2.applyColorMap(
+            #     cv2.convertScaleAbs(depth_image, alpha=0.03), 
+            #     cv2.COLORMAP_JET
+            # )
+            # cv2.imshow('Depth Camera', depth_colormap)
+            # cv2.waitKey(1)
+        except Exception as e:
+            self.get_logger().error(f'Error processing depth image: {str(e)}')
 
 
     def location_marsFrame_callback(self, msg):
@@ -166,7 +206,13 @@ class RoverController(Node):
         self.current_rotation_localFrame = msg
     
     def core_sampling_complete_callback(self, msg):
+        self.send_accelerator_command(1.0)
+        time.sleep(2)
         self.state = "Driving"
+        
+        
+
+        
 
     def log_message(self, message):
         request = String.Request()
@@ -248,6 +294,16 @@ class RoverController(Node):
         request = Float.Request()
         request.data = exposure_level
         return self.change_exposure_client.call_async(request)
+    
+    def change_rgb_freq(self, rgb_freq: float):
+        request = Float.Request()
+        request.data = rgb_freq
+        return self.change_rgb_freq_client.call_async(request)
+    
+    def change_depth_freq(self, depth_freq: float):
+        request = Float.Request()
+        request.data = depth_freq
+        return self.change_depth_freq_client.call_async(request)
 
     def timer_callback(self):
         if not self.navigation_active:
@@ -292,10 +348,11 @@ class RoverController(Node):
             self.send_accelerator_command(0.0)
             self.log_message(f"Target reached! Beginning core sampling at position: ({current_x:.2f}, {current_y:.2f})")
             self.send_core_sampling_command()
+            print("core sampling done")
 
             if self.current_waypoint_idx == len(self.waypoints) - 1:
                 self.navigation_active = False
-                self.log_message("Navigation complete: all waypoints reached and all core samples collected.")
+                self.log_message("Navigation completed by Team Drubar: all waypoints reached and all core samples collected.")
             else:
                 self.current_waypoint_idx += 1
                 self.target_loc_localFrame = self.waypoints[self.current_waypoint_idx]
@@ -304,11 +361,32 @@ class RoverController(Node):
             return
         
         # Velocity error
-        if self.rock or self.night:
-            speed_limit_kph = 15
-            print("speed set to 15")
+        #speed_limit_kph = 40
+
+        if self.night:
+            speed_limit_kph = min(25,self.center_distance/1000 + 18)
+        elif self.rock:
+            speed_limit_kph = min(25,self.center_distance/2000 + 20)
         else:
-            speed_limit_kph = 30.0
+            if self.current_waypoint_idx == 0:
+                speed_limit_kph = min(35,self.center_distance/1000 + 22) 
+            else:
+                speed_limit_kph = min(30,self.center_distance/1000 + 22)
+        
+        
+        # if self.night and self.center_distance<5000:
+        #     speed_limit_kph = 15
+        # elif self.night:
+        #     speed_limit_kph = 18    
+        # elif self.rock:
+        #     speed_limit_kph = 20 
+        # elif self.center_distance >10000:
+        #     speed_limit_kph = 28
+        # else:
+        #     speed_limit_kph = 26
+
+        print("speed set to ", speed_limit_kph)
+        
         speed_diff_kph = self.calculate_speed_difference(current_vel_localFrame, speed_limit_kph)  # target - current
         accel_factor = remap_clamp(0.0, speed_limit_kph, 0.0, 1.0, speed_diff_kph)  # 1 if not moving, 0 if too fast
         brake_factor = 1.0 - remap_clamp(-speed_limit_kph, 0.0, 0.0, 1.0, speed_diff_kph)  # 0 if <= speed limit, 1 if 2x over
@@ -340,17 +418,79 @@ class RoverController(Node):
         self.send_reverse_command(brake_command)  # Send brake command as a float (reverse)
         self.send_brake_command(0.0)
 
-        print('diff_speed')
-        print(speed_diff_kph)
-        if speed_diff_kph>speed_limit_kph-0.25 and accel_command>0.9 and brake_command == 0.0:
+        
+        #detect Rock 1st impact
+        # if speed_diff_kph > self.last_speed_diff_kph+15 and self.state == "Driving":
+        #     print("Impact detected")
+        #     self.send_brake_command(1.0)
+        #     time.sleep(1)
+        #     self.send_brake_command(0.0)
+        
+        # self.last_speed_diff_kph = speed_diff_kph
+        #Stuck by Rock
+        if self.center_distance <100 and self.night:
+            print('Breaking for close rock')
+            self.send_brake_command(1.0)
+            time.sleep(1)
+            self.send_brake_command(0.0)
+        elif self.center_distance<3000 and self.night:
+            self.send_steer_command(0.6)
+            #self.send_accelerator_command(0.6)
+            time.sleep(0.8)
+
+        if speed_diff_kph>speed_limit_kph-0.25 and accel_command>0.9 and brake_command == 0.0 and self.state == "Driving":
+            self.stuck +=1
+            if self.stuck ==1:
+                time.sleep(0.5)
+                return
+            print('stuct no:',self.stuck)
+            #avoid and go from right side
             self.send_accelerator_command(0.0)
-            self.send_reverse_command(0.7)
+            self.send_steer_command(0.0)
+            self.send_reverse_command(1.0)
             time.sleep(2)
             self.send_reverse_command(0.0)
+            self.send_brake_command(1.0)
+            time.sleep(1)
+            self.send_brake_command(0.0)
             self.send_accelerator_command(1.0)
-            time.sleep(0.5)
-            self.send_steer_command(1)
-            time.sleep(2)
+            self.send_steer_command(0.8)
+            time.sleep(3)
+        else: 
+            self.stuck =0
+        if self.stuck >=3:
+            print("stuck over rock")
+            #weggle out
+            self.send_accelerator_command(1.0)
+            self.send_reverse_command(0.0)
+            time.sleep(1)
+            self.send_reverse_command(0.7)
+            self.send_accelerator_command(0.0)
+            for i in range(5):
+                self.send_steer_command(1)
+                time.sleep(0.8)
+                self.send_steer_command(-1)
+                time.sleep(0.8)
+            print("weggled to clear out")
+        
+        ## Camera Exposure Change
+        #print("Brightness: ", self.brightness)
+        #self.change_exposure(self.brightness/17+5)
+        if time.time() > self.tm +3:
+
+            if self.brightness < 50:
+                self.cam_expose = max(5.0, self.cam_expose-0.5) 
+                self.change_exposure(self.cam_expose)
+
+            elif self.brightness >150:
+                self.cam_expose = min(20.0, self.cam_expose+1)
+                self.change_exposure(self.cam_expose) 
+            #print("set Exposure: ", self.cam_expose)
+            self.tm = time.time()
+
+        
+        #Stuck over Rock
+
 
 
 
@@ -378,7 +518,7 @@ def main(args=None):
     # waypoint_localframe = np.array([22.0285988, 60.41062071, -4.50449595])
 
     # Test multiple waypoints:
-    waypoints_localFrame = [
+    """ waypoints_localFrame = [
         np.array([-54.31019727, 191.84449903, -19.54598818]),
         np.array([111.24089259, 427.56166121, -54.81398767]),
         np.array([-349.10709106,  558.01869306, -68.71836618]),
@@ -399,7 +539,45 @@ def main(args=None):
         np.array([247.67056987, 579.07900331, -75.04176954]),
         np.array([345.53461945, 1330.35839896, -73.5301525]),
         np.array([1073.3882324, 1613.84763245, -50.72357905])
-    ]
+    ] """
+    # Original waypoints (XYZ)
+    waypoints_localFrame = np.array([
+        [-54.31019727, 191.84449903, -19.54598818],
+        [111.24089259, 427.56166121, -54.81398767],
+        [-349.10709106, 558.01869306, -68.71836618],
+        [1281.36380015, 1647.50529027, -39.35361376],
+        [654.62948546, 1186.61595725, -48.4778713],
+        [-606.74433428, 332.44253661, -20.41775233],
+        [1349.86835614, 1047.23075279, -46.89420337],
+        [231.41034119, -858.69285702, -63.3150879],
+        [45.56236659, 921.05755228, -65.76412603],
+        [1960.32237043, 1423.88737415, -89.97019481],
+        [1098.14343253, 1987.40560248, -45.45757708],
+        [10.15805303, -752.47151722, -68.15878792],
+        [1532.81368707, 1255.13690297, -48.47378546],
+        [-561.74721182, 28.52558036, -29.92751284],
+        [1958.28017108, 1381.24222162, -76.75680176],
+        [-1025.65838348, 274.39353778, -76.31593519],
+        [410.36797363, -956.93367913, -84.31272572],
+        [247.67056987, 579.07900331, -75.04176954],
+        [345.53461945, 1330.35839896, -73.5301525],
+        [1073.3882324, 1613.84763245, -50.72357905]
+    ])
+
+# ---------- Reorder waypoints using Nearest Neighbor ----------
+    """ ordered_waypoints = [waypoints_localFrame[0]]
+    remaining = waypoints_localFrame[1:].tolist()
+
+    while remaining:
+        distances = cdist([ordered_waypoints[-1]], remaining)
+        nearest_idx = np.argmin(distances)
+        ordered_waypoints.append(remaining.pop(nearest_idx))
+
+    waypoints_localFrame = np.array(ordered_waypoints) """
+    index = [16,7,11,13,15,5,2,0,1,17,8,18,4,19,3,10,9,14,12,6]
+    #index = [16,7,11,13,15,5,2,0,1,17,8,18,4,19,3,10,9,14,12,6]
+    ord_waypoints = waypoints_localFrame[index]
+    waypoints_localFrame = ord_waypoints
 
     # Wait for initial location and rotation
     while rclpy.ok():
@@ -413,6 +591,16 @@ def main(args=None):
 
     rover_controller.waypoints = waypoints_localFrame
     rover_controller.current_waypoint_idx = 0
+    
+    # Camera framerate adjustment
+    # Set to match defaults but you can adjust here as needed.
+    new_rgb_freq = 15.0
+    new_depth_freq = 5.0
+
+    rover_controller.log_message(f"Setting RGB frequency to {new_rgb_freq} Hz and Depth frequency to {new_depth_freq} Hz.")
+    rover_controller.get_logger().info(f"Setting RGB frequency to {new_rgb_freq} Hz and Depth frequency to {new_depth_freq} Hz.")
+    rover_controller.change_rgb_freq(new_rgb_freq)
+    rover_controller.change_depth_freq(new_depth_freq)
 
     rover_controller.log_message(
         f"Starting navigation: moving from ({current_x:.2f}, {current_y:.2f}) to ({waypoints_localFrame[0][0]:.2f}, {waypoints_localFrame[0][1]:.2f})"

@@ -28,9 +28,10 @@ setup(
             'image_client = space_teams_python.image_client:main',
 	    'send_log_message = space_teams_python.send_log_message:main',
 	    'durbar_controller_qalification = space_teams_python.durbar_controller_qualification:main',
-	    'durbar_controller2 = space_teams_python.durbar_controller2:main',
+	    'durbar_controller = space_teams_python.durbar_controller4:main',
 	    'video_recoder = space_teams_python.camera_view_save:main',
 	    'rock_detector = space_teams_python.rock_detector:main',
+	    'plot_trajectory = space_teams_python.plot_trajectory_3:main', 
         ],
     },
 )
