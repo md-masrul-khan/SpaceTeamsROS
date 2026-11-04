@@ -6,3 +6,9 @@
 The node durbar_controller_qualification is used for the qualification round. And durbar_controller (durbar_controller5.py) node is used for final round. 
 
 -> changed windows_ip in image_client and Localhost ip from ROS_Telemetry and Sim2_comm as we are using separate PC for simualator and ROS.
+
+## Team Durbar's Autonomous Navigation Design achieved 2nd global position and Won $3000 prize money.
+
+### [![Watch the video]([https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s](https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s))
+### [![Watch the video]([https://www.youtube.com/watch?v=d-4acDnX9nA](https://www.youtube.com/watch?v=d-4acDnX9nA))
+
