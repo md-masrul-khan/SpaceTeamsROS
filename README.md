@@ -9,6 +9,6 @@ The node durbar_controller_qualification is used for the qualification round. An
 
 ## Team Durbar's Autonomous Navigation Design achieved 2nd global position and Won $3000 prize money.
 
-### [![Watch Simulation Rub](https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s)](https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s)
+### [![Watch Simulation Run](https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s)](https://www.youtube.com/watch?v=pW_13mUVwUA&t=313s)
 ### [![Watch the solution explanation](https://www.youtube.com/watch?v=d-4acDnX9nA)](https://www.youtube.com/watch?v=d-4acDnX9nA))
 
